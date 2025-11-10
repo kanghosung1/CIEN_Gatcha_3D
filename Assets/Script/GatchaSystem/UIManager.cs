@@ -12,6 +12,15 @@ public class UIManager : MonoBehaviour {
     public GameObject prizeRowPrefab;         // PrizeRowPrefab
     public Button exportCsvButton;            // (선택) CSV 내보내기
 
+    public GameObject TotalUIPanel;
+    
+    // 3D 세트 루트(연출 때만 켬)
+    public GameObject stageRoot;                 // 비활성로 시작
+// 카메라 연출 컴포넌트
+    public CameraFlythrough fly;
+// 결과 연출
+    public ResultFXManager resultFX;
+    
     // 내부 상태
     readonly List<PrizeRowUI> rows = new List<PrizeRowUI>();
 
@@ -92,6 +101,7 @@ public class UIManager : MonoBehaviour {
             drawButton.interactable = false;
             return;
         }
+        StartCoroutine(PlaySequenceThenShow(prize));
         resultText.text = $"결과: {prize.name}";
         RefreshAll();
     }
@@ -99,5 +109,39 @@ public class UIManager : MonoBehaviour {
     void OnClickExportCsv() {
         string path = Exporter.ExportCsv(gacha.State);
         resultText.text = $"CSV 저장: {path}";
+    }
+    
+    System.Collections.IEnumerator PlaySequenceThenShow(Prize prize) {
+        // 입력 잠금
+        if (drawButton) drawButton.interactable = false;
+
+        if (TotalUIPanel) TotalUIPanel.SetActive(false);
+        
+        // 3D 스테이지 켜고 카메라 이동
+        if (stageRoot) stageRoot.SetActive(true);
+        if (fly != null) yield return StartCoroutine(fly.Play());
+        if (stageRoot) stageRoot.SetActive(false);
+
+        // 결과 연출(UI)
+        if (resultFX != null) {
+            var color = prize.id == "rank1" ? new Color(1f,0.9f,0.2f)
+                : prize.id == "rank2" ? new Color(0f,0f,0f)
+                : prize.id == "last"  ? new Color(0f,0f,0f)
+                : Color.black;
+            resultFX.Show($"결과: {prize.name}", color, onClosed: () =>
+            {
+                // 결과 패널 닫힌 후에만 복귀 처리
+                RefreshAll();                         // 숫자 갱신
+                if (TotalUIPanel) TotalUIPanel.SetActive(true);
+                if (drawButton) drawButton.interactable = true;
+            });
+        } 
+        else {
+            // 안전망
+            if (resultText) resultText.text = $"결과: {prize.name}";
+            RefreshAll();
+            if (TotalUIPanel) TotalUIPanel.SetActive(true);
+            if (drawButton) drawButton.interactable = true;
+        }
     }
 }

@@ -24,6 +24,7 @@ public class AdminPanel : MonoBehaviour
         minusBtn.onClick.AddListener(() => Adjust(-1));
         setBtn.onClick.AddListener(SetRemaining);
         undoBtn.onClick.AddListener(UndoLast);
+        gameObject.SetActive(false);
     }
     
     
