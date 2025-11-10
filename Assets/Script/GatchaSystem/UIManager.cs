@@ -36,7 +36,7 @@ public class UIManager : MonoBehaviour {
                 return;
             }
         }
-        if (resultText != null) resultText.text = "결과: -";
+        if (resultText != null) resultText.text = "이전 결과: -";
         BuildRows();      // 먼저 행 생성
         RefreshAll();     // 그 다음 내용 채우기
     }
@@ -97,12 +97,12 @@ public class UIManager : MonoBehaviour {
     void OnClickDraw() {
         var prize = gacha.DrawOnce();
         if (prize == null) {
-            resultText.text = "결과: 모든 경품 소진";
+            resultText.text = "모든 경품 소진";
             drawButton.interactable = false;
             return;
         }
         StartCoroutine(PlaySequenceThenShow(prize));
-        resultText.text = $"결과: {prize.name}";
+        resultText.text = $"이전 결과: {prize.name}";
         RefreshAll();
     }
 

@@ -13,6 +13,7 @@ public class AdminPanel : MonoBehaviour
     public TMP_InputField setInput;     // 남은 수량 지정 입력
     public Button plusBtn, minusBtn, setBtn, undoBtn;
     public TextMeshProUGUI statusText;  // 상태/안내 표시
+    public Button redoBtn;
 
     void Start()
     {
@@ -25,6 +26,7 @@ public class AdminPanel : MonoBehaviour
         setBtn.onClick.AddListener(SetRemaining);
         undoBtn.onClick.AddListener(UndoLast);
         gameObject.SetActive(false);
+        redoBtn.onClick.AddListener(RedoLastUndo);
     }
     
     
@@ -85,6 +87,17 @@ public class AdminPanel : MonoBehaviour
         else
         {
             statusText.text = $"Undo 실패: {info}";
+        }
+    }
+    void RedoLastUndo()
+    {
+        string info;
+        bool ok = SaveSystem.TryRedoLastUndo(gacha.State, out info);
+        if (ok) {
+            ui?.RefreshAll();
+            statusText.text = $"Redo 성공: {info}";
+        } else {
+            statusText.text = $"Redo 실패: {info}";
         }
     }
 }

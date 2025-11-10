@@ -8,7 +8,13 @@ public static class SaveSystem {
     static string TempPath  => Path.Combine(Dir, "state.tmp");
     static string BakPath   => Path.Combine(Dir, "state.bak.json");
     static string LogPath   => Path.Combine(Dir, "drawlog.ndjson"); // newline-delimited JSON
-
+    static string UndoBufPath => Path.Combine(Dir, "undo_buffer.json");
+    
+    [Serializable]
+    class UndoBuffer {
+        public DrawLogLine record;
+        public int expectedLogCountAfterUndo;
+    }
     public static void EnsureDir() //Dir 이 있는지 확인, 없으면 생성
     { 
         if (!Directory.Exists(Dir)) Directory.CreateDirectory(Dir); 
@@ -138,6 +144,13 @@ public static class SaveSystem {
             info = "마지막 로그 레코드가 비어 있습니다.";
             return false;
         }
+        
+        // ✅ Redo를 위한 버퍼 저장 (Undo 수행 전, 기대 줄 수 기록)
+        var buf = new UndoBuffer {
+            record = lastRec,
+            expectedLogCountAfterUndo = lines.Length - 1
+        };
+        File.WriteAllText(UndoBufPath, JsonUtility.ToJson(buf));
 
         // 해당 상품 찾기
         var prize = state.prizes.Find(p => p.id == lastRec.prizeId);
@@ -175,6 +188,59 @@ public static class SaveSystem {
 
         // 상태 저장
         Save(state);
+        return true;
+    }
+    
+    public static bool TryRedoLastUndo(AppState state, out string info)
+    {
+        info = "";
+        EnsureDir();
+
+        if (!File.Exists(UndoBufPath)) { info = "되돌리기 버퍼가 없습니다."; return false; }
+
+        UndoBuffer buf = null;
+        try { buf = JsonUtility.FromJson<UndoBuffer>(File.ReadAllText(UndoBufPath)); }
+        catch { info = "버퍼 파일을 파싱할 수 없습니다."; return false; }
+        if (buf == null || buf.record == null || string.IsNullOrEmpty(buf.record.prizeId)) {
+            info = "버퍼 내용이 비어 있습니다."; return false;
+        }
+
+        // 로그 길이 검증: Undo 이후 새로운 추첨이 추가되었다면 Redo를 막습니다.
+        var currentLines = File.Exists(LogPath) ? File.ReadAllLines(LogPath) : Array.Empty<string>();
+        if (currentLines.Length != buf.expectedLogCountAfterUndo) {
+            info = "되돌린 이후 새로운 기록이 생겨 Redo할 수 없습니다.";
+            return false;
+        }
+
+        // 상태 재적용(= 되돌리기 취소 → 다시 소진/카운트 복구)
+        var prize = state.prizes.Find(p => p.id == buf.record.prizeId);
+        if (prize == null) { info = $"버퍼의 prizeId({buf.record.prizeId})가 현재 상태에 없습니다."; return false; }
+
+        if (prize.remaining <= 0) {
+            info = "재고가 0이라 Redo를 할 수 없습니다.";
+            return false;
+        }
+
+        prize.remaining--;
+        state.stats.totalDraws++;
+        if (!state.stats.winCounts.ContainsKey(prize.id))
+            state.stats.winCounts[prize.id] = 0;
+        state.stats.winCounts[prize.id]++;
+
+        // drawlog에 마지막 레코드 재추가(append)
+        using (var fs = new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read))
+        using (var sw = new StreamWriter(fs)) {
+            sw.WriteLine(JsonUtility.ToJson(buf.record));
+            sw.Flush();
+            fs.Flush(true);
+        }
+
+        Save(state);
+
+        // ✅ Redo 완료 후 버퍼 제거
+        try { File.Delete(UndoBufPath); } catch { /* ignore */ }
+
+        info = $"Redo: {buf.record.prizeName} / 남은수량 {prize.remaining}";
         return true;
     }
 }
