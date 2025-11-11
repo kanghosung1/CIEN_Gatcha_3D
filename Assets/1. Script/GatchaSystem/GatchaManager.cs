@@ -25,10 +25,11 @@ public class GachaManager : MonoBehaviour {
         };
         s.prizes = new System.Collections.Generic.List<Prize> {
             new Prize{ id="rank1", name="1등", remaining=1,  weight=1 },
-            new Prize{ id="rank2", name="2등", remaining=3,  weight=1 },
-            new Prize{ id="rank3", name="3등", remaining=5, weight=1 },
-            new Prize{ id="rank4", name="4등", remaining=15, weight=1 },
-            new Prize{ id="last",  name="꼴등", remaining=30, weight=1 },
+            new Prize{ id="rank2", name="2등", remaining=15,  weight=1 },
+            new Prize{ id="rank3", name="3등", remaining=10, weight=1 },
+            new Prize{ id="rank4", name="4등", remaining=10, weight=1 },
+            new Prize{ id="rank5", name="5등", remaining=30, weight=1 },
+            new Prize{ id="last",  name="6등", remaining=30, weight=1 }
         };
 
         // ✅ winCounts 딕셔너리 미리 전부 생성
