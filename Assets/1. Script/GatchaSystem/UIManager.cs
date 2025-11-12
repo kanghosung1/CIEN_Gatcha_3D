@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -24,6 +25,12 @@ public class UIManager : MonoBehaviour {
     // 내부 상태
     readonly List<PrizeRowUI> rows = new List<PrizeRowUI>();
 
+    public LottoMachine lotto;                 // 로또 기계 참조
+    public Transform resultIngame;            // 말미에 잠깐 띄울 임시 텍스트(새 텍스트)
+    public TextMeshPro midText;
+    public float ejectDelayAfterDive = 0.45f;  // 다이브 신호 후 로또 토출까지 지연(초)
+    private string lastPrizeNameOrLabel;
+
     void Start() {
         // 버튼 연결
         if (drawButton != null) drawButton.onClick.AddListener(OnClickDraw);
@@ -40,6 +47,14 @@ public class UIManager : MonoBehaviour {
         BuildRows();      // 먼저 행 생성
         RefreshAll();     // 그 다음 내용 채우기
         stageRoot.SetActive(false);
+        
+        if (fly != null)
+        {
+            // 중복 구독 방지 위해 먼저 해제
+            fly.OnDiveBegin -= HandleDiveBegin;
+            fly.OnDiveBegin += HandleDiveBegin;
+        }
+        
     }
 
     void BuildRows() {
@@ -102,6 +117,7 @@ public class UIManager : MonoBehaviour {
             drawButton.interactable = false;
             return;
         }
+        lastPrizeNameOrLabel = prize.name;
         StartCoroutine(PlaySequenceThenShow(prize));
         resultText.text = $"이전 결과: {prize.name}";
         RefreshAll();
@@ -112,37 +128,68 @@ public class UIManager : MonoBehaviour {
         resultText.text = $"CSV 저장: {path}";
     }
     
-    System.Collections.IEnumerator PlaySequenceThenShow(Prize prize) {
-        // 입력 잠금
+    IEnumerator PlaySequenceThenShow(Prize prize) {
         if (drawButton) drawButton.interactable = false;
-
         if (TotalUIPanel) TotalUIPanel.SetActive(false);
-        
-        // 3D 스테이지 켜고 카메라 이동
-        if (stageRoot) stageRoot.SetActive(true);
-        if (fly != null) yield return StartCoroutine(fly.Play());
 
-        // 결과 연출(UI)
+        lastPrizeNameOrLabel = prize.name;
+
+        if (stageRoot) stageRoot.SetActive(true);
+
+        bool flyDone = false;
+        StartCoroutine(PlayFlyThenMark(() => flyDone = true)); // fly.Play() 안에서 정지/진행을 모두 처리
+
+        // 여기서는 다이브 타이밍을 건드리지 않음 (OnDiveBegin에서 eject를 처리)
+
+        // 카메라 연출 끝날 때까지 대기
+        while (!flyDone) yield return null;
+
+        // 결과 패널
         if (resultFX != null) {
             var color = prize.id == "rank1" ? new Color(1f,0.9f,0.2f)
-                : prize.id == "rank2" ? new Color(0f,0f,0f)
-                : prize.id == "last"  ? new Color(0f,0f,0f)
-                : Color.black;
+                : prize.id == "rank2" ? new Color(0.8f,0.9f,1f)
+                : prize.id == "last"  ? new Color(0.85f,0.85f,0.85f)
+                : Color.white;
+
             resultFX.Show($"결과: {prize.name}", color, onClosed: () =>
             {
                 if (stageRoot) stageRoot.SetActive(false);
-                // 결과 패널 닫힌 후에만 복귀 처리
-                RefreshAll();                         // 숫자 갱신
+                RefreshAll();
                 if (TotalUIPanel) TotalUIPanel.SetActive(true);
                 if (drawButton) drawButton.interactable = true;
             });
-        } 
-        else {
-            // 안전망
+        } else {
             if (resultText) resultText.text = $"결과: {prize.name}";
             RefreshAll();
+            if (stageRoot) stageRoot.SetActive(false);
             if (TotalUIPanel) TotalUIPanel.SetActive(true);
             if (drawButton) drawButton.interactable = true;
         }
     }
+    
+    // fly.Play()를 병렬로 돌리고, 끝나면 콜백으로 마킹
+    IEnumerator PlayFlyThenMark(System.Action onDone) {
+        if (fly != null) yield return StartCoroutine(fly.Play());
+        onDone?.Invoke();
+    }
+    void HandleDiveBegin()
+    {
+        // 다이브가 시작된 "그 순간"을 기준으로 ejectDelay를 적용
+        StartCoroutine(CoEjectAfterDelay());
+    }
+    
+    IEnumerator CoEjectAfterDelay()
+    {
+        yield return new WaitForSeconds(ejectDelayAfterDive);
+
+        // 로또 토출
+        if (lotto != null) lotto.SpawnResultBall();
+
+        if (midText != null || resultIngame != null)
+        {
+            resultIngame.gameObject.SetActive(true);
+            midText.text = $"결과: {lastPrizeNameOrLabel}"; // prize.name을 저장해두고 쓰면 됩니다.
+        }
+    }
+    
 }

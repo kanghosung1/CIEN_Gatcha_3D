@@ -84,7 +84,7 @@ public class LottoMachine : MonoBehaviour
         }
     }
 
-    void SpawnResultBall()
+    public void SpawnResultBall()
     {
         if (!resultBallPrefab || !ejectSpawn) return;
 
