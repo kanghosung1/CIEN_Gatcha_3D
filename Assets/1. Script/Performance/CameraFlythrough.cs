@@ -246,4 +246,39 @@ public class CameraFlythrough : MonoBehaviour
         }
         transform.position = basePos;
     }
+
+    // ==== 추가: 즉시 마지막 상태로 스냅 ====
+    /// <summary>
+    /// 모든 토글 상태를 '마지막 도착' 기준으로 맞추고,
+    /// 카메라를 마지막 웨이포인트 위치/방향/FOV로 즉시 이동시킵니다.
+    /// 코루틴은 호출 측(UI)에서 중단한 뒤 사용하세요.
+    /// </summary>
+    public void JumpToEnd(bool applyArrivalToggles = true)
+    {
+        if (waypoints == null || waypoints.Count == 0) return;
+
+        int last = waypoints.Count - 1;
+
+        // 도착 토글 상태 맞추기 (Play()와 동일한 효과)
+        if (applyArrivalToggles)
+        {
+            if (applyToggleOnStart) ApplyArrivalActions(0);
+            for (int i = 1; i <= last; i++)
+                ApplyArrivalActions(i);
+        }
+
+        // 위치 스냅
+        transform.position = waypoints[last].position;
+
+        // 회전: 마지막-1 → 마지막 바라보게
+        if (last > 0)
+        {
+            Vector3 dir = waypoints[last].position - waypoints[last - 1].position;
+            if (dir.sqrMagnitude > 1e-8f)
+                transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+        }
+
+        // FOV 스냅
+        if (useFovZoom && _cam) _cam.fieldOfView = fovEnd;
+    }
 }

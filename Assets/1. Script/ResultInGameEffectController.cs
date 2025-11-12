@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class ResultInGameEffectController : MonoBehaviour
+public class ResultIngameEffectController : MonoBehaviour
 {
     [Tooltip("1등~6등에 대응하는 Parent 오브젝트 (인덱스 0 = 1등, 5 = 6등)")]
     public GameObject[] rankParents;

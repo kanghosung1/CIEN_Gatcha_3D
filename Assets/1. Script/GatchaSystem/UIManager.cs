@@ -31,28 +31,40 @@ public class UIManager : MonoBehaviour {
 
     [Header("Skip")]
     [Tooltip("플라이스루 도중 즉시 초기 UI로 돌아가는 스킵 버튼")]
-    public Button skipButton;
+    public Button skipButton;                 // 초기 화면으로
+    [Tooltip("플라이스루/대기 생략 후 즉시 결과 표시로 이동하는 스킵 버튼")]
+    public Button skipToRevealButton;         // 결과 직행
 
     [Header("Optional")]
     public LottoMachine lotto;                // 로또 기계 참조(있다면 SpawnResultBall 사용)
     [Tooltip("resultIngame에 붙은 컨트롤러(등수별 Parent 활성화 담당)")]
-    public ResultInGameEffectController ingameEffectCtrl;
+    public ResultIngameEffectController ingameEffectCtrl;
 
     // 내부 상태
     readonly List<PrizeRowUI> rows = new List<PrizeRowUI>();
     private string lastPrizeNameOrLabel;
+    private Prize _currentPrize;
 
     // 코루틴 핸들(스킵용)
     private Coroutine _sequenceCo;
     private Coroutine _flyCo;
 
+    // 진행 플래그
+    private bool _spawnedBall;   // SpawnResultBall 수행 여부
+    private bool _revealed;      // 결과 표시 완료 여부
+
     void Start() {
         if (drawButton != null) drawButton.onClick.AddListener(OnClickDraw);
         if (exportCsvButton != null) exportCsvButton.onClick.AddListener(OnClickExportCsv);
         if (skipButton != null) {
-            skipButton.onClick.AddListener(OnClickSkip);
+            skipButton.onClick.AddListener(OnClickSkipToHome);
             skipButton.gameObject.SetActive(false);
             skipButton.interactable = false;
+        }
+        if (skipToRevealButton != null) {
+            skipToRevealButton.onClick.AddListener(OnClickSkipToReveal);
+            skipToRevealButton.gameObject.SetActive(false);
+            skipToRevealButton.interactable = false;
         }
 
         if (gacha == null) {
@@ -72,10 +84,9 @@ public class UIManager : MonoBehaviour {
 
         // resultIngame 컨테이너/컨트롤러 참조 보정
         if (resultIngame != null && ingameEffectCtrl == null) {
-            ingameEffectCtrl = resultIngame.GetComponent<ResultInGameEffectController>();
+            ingameEffectCtrl = resultIngame.GetComponent<ResultIngameEffectController>();
             if (ingameEffectCtrl == null) {
-                // 자식에 붙여놨다면 GetComponentInChildren로도 탐색
-                ingameEffectCtrl = resultIngame.GetComponentInChildren<ResultInGameEffectController>(true);
+                ingameEffectCtrl = resultIngame.GetComponentInChildren<ResultIngameEffectController>(true);
             }
         }
 
@@ -155,21 +166,20 @@ public class UIManager : MonoBehaviour {
     }
 
     IEnumerator PlaySequenceThenShow(Prize prize) {
+        _currentPrize = prize;
+        _spawnedBall = false;
+        _revealed = false;
+
         if (drawButton) drawButton.interactable = false;
         if (TotalUIPanel) TotalUIPanel.SetActive(false);
         if (resultIngame) resultIngame.gameObject.SetActive(false); // 초기엔 꺼둠
 
-        lastPrizeNameOrLabel = prize.name;
-
         if (stageRoot) stageRoot.SetActive(true);
 
         // 스킵 버튼 활성화
-        if (skipButton != null) {
-            skipButton.gameObject.SetActive(true);
-            skipButton.interactable = true;
-        }
+        SetSkipButtons(active: true, interactable: true);
 
-        // 1) 카메라 플라이스루: waypoint[0] → 마지막까지
+        // 1) 카메라 플라이스루
         if (fly != null) {
             _flyCo = StartCoroutine(fly.Play());
             yield return _flyCo;   // 여기서 대기
@@ -177,30 +187,88 @@ public class UIManager : MonoBehaviour {
         }
 
         // 2) 결과구슬 Spawn
-        if (lotto != null) {
-            lotto.SpawnResultBall();
-        }
+        EnsureSpawnBall();
 
-        // 3) 지정한 시간만큼 대기
+        // 3) 대기
         if (delayAfterSpawn > 0f) {
             yield return new WaitForSeconds(delayAfterSpawn);
         }
 
-        // 4) 결과 Ingame 라벨(등수별 Parent 활성화) + ResultFX 출력
-        int rank = GetRankFromPrizeId(prize.id); // 1~6로 매핑
-        // resultIngame 컨테이너 켠 뒤, 등수 Parent만 on (나머지는 off)
-        if (resultIngame != null) {
-            resultIngame.gameObject.SetActive(true);
-            if (ingameEffectCtrl != null) {
-                ingameEffectCtrl.ActivateRankParent(rank); // 해당 Parent만 Enable → 자식 폭죽 OnEnable로 발동
-            } else {
-                Debug.LogWarning("UIManager: ResultIngameEffectController가 설정되지 않았습니다.");
-            }
+        // 4) 결과 표시
+        RevealCurrentPrize();
+
+        _sequenceCo = null;
+    }
+
+    // === 스킵 ①: 처음 화면으로 복귀 ===
+    void OnClickSkipToHome() {
+        if (_flyCo != null) { StopCoroutine(_flyCo); _flyCo = null; }
+        if (_sequenceCo != null) { StopCoroutine(_sequenceCo); _sequenceCo = null; }
+
+        if (resultIngame) resultIngame.gameObject.SetActive(false);
+        if (stageRoot) stageRoot.SetActive(false);
+
+        SetSkipButtons(active: false, interactable: false);
+
+        RefreshAll();
+        if (TotalUIPanel) TotalUIPanel.SetActive(true);
+        if (drawButton) drawButton.interactable = true;
+
+        if (resultText) resultText.text = $"이전 결과: {lastPrizeNameOrLabel}";
+    }
+
+    // === 스킵 ②: 결과 직전까지(카메라도 마지막으로 스냅) → 즉시 결과 표시 ===
+    void OnClickSkipToReveal() {
+        // 진행 중 코루틴 중단
+        if (_flyCo != null) { StopCoroutine(_flyCo); _flyCo = null; }
+        if (_sequenceCo != null) { StopCoroutine(_sequenceCo); _sequenceCo = null; }
+
+        // 스테이지 유지
+        if (stageRoot) stageRoot.SetActive(true);
+
+        // ★ 카메라를 마지막 웨이포인트 상태로 즉시 스냅
+        if (fly != null) {
+            fly.JumpToEnd(applyArrivalToggles: true);
         }
 
+        // 결과구슬이 아직이면 바로 Spawn
+        EnsureSpawnBall();
+
+        // 대기 생략 → 결과 바로 표시
+        RevealCurrentPrize();
+    }
+
+    void EnsureSpawnBall() {
+        if (_spawnedBall) return;
+        if (lotto != null) {
+            lotto.SpawnResultBall();
+        }
+        _spawnedBall = true;
+    }
+
+    void RevealCurrentPrize() {
+        if (_revealed) return;
+        _revealed = true;
+
+        var prize = _currentPrize;
+        if (prize == null) {
+            CleanupAfterSequence();
+            return;
+        }
+
+        if (resultIngame != null) {
+            resultIngame.gameObject.SetActive(true);
+            int rank = GetRankFromPrizeId(prize.id);
+            if (ingameEffectCtrl != null) {
+                ingameEffectCtrl.ActivateRankParent(rank); // 해당 Parent만 Enable → 폭죽 OnEnable 발동
+            }
+        }
         if (midText != null) {
             midText.text = $"결과: {lastPrizeNameOrLabel}";
         }
+
+        // 결과 순간엔 스킵 비활성
+        SetSkipButtons(active: false, interactable: false);
 
         if (resultFX != null) {
             var color = prize.id == "rank1" ? new Color(1f, 0.9f, 0.2f)
@@ -217,37 +285,6 @@ public class UIManager : MonoBehaviour {
             if (resultText) resultText.text = $"결과: {prize.name}";
             CleanupAfterSequence();
         }
-
-        _sequenceCo = null;
-    }
-
-    // 스킵 버튼
-    void OnClickSkip() {
-        // 카메라 코루틴 중단
-        if (_flyCo != null) {
-            StopCoroutine(_flyCo);
-            _flyCo = null;
-        }
-        // 시퀀스 코루틴 중단
-        if (_sequenceCo != null) {
-            StopCoroutine(_sequenceCo);
-            _sequenceCo = null;
-        }
-
-        // 결과 라벨/FX는 표시하지 않고 바로 초기 화면 복귀
-        if (resultIngame) resultIngame.gameObject.SetActive(false);
-        if (stageRoot) stageRoot.SetActive(false);
-
-        // UI 복구
-        if (skipButton != null) {
-            skipButton.interactable = false;
-            skipButton.gameObject.SetActive(false);
-        }
-        RefreshAll();
-        if (TotalUIPanel) TotalUIPanel.SetActive(true);
-        if (drawButton) drawButton.interactable = true;
-
-        if (resultText) resultText.text = $"이전 결과: {lastPrizeNameOrLabel}";
     }
 
     void CleanupAfterSequence() {
@@ -256,16 +293,29 @@ public class UIManager : MonoBehaviour {
         if (TotalUIPanel) TotalUIPanel.SetActive(true);
         if (drawButton) drawButton.interactable = true;
 
+        SetSkipButtons(active: false, interactable: false);
+
+        _currentPrize = null;
+        _sequenceCo = null;
+        _flyCo = null;
+        _spawnedBall = false;
+        _revealed = false;
+    }
+
+    void SetSkipButtons(bool active, bool interactable) {
         if (skipButton != null) {
-            skipButton.interactable = false;
-            skipButton.gameObject.SetActive(false);
+            skipButton.gameObject.SetActive(active);
+            skipButton.interactable = interactable;
+        }
+        if (skipToRevealButton != null) {
+            skipToRevealButton.gameObject.SetActive(active);
+            skipToRevealButton.interactable = interactable;
         }
     }
 
     /// <summary>
     /// Prize.id를 등수(1~6)로 매핑
     /// rank1~rank5 → 1~5, last → 6
-    /// 예외(id 미일치)는 6등으로 처리(원하면 변경)
     /// </summary>
     static int GetRankFromPrizeId(string id) {
         if (string.IsNullOrEmpty(id)) return 6;
@@ -275,7 +325,7 @@ public class UIManager : MonoBehaviour {
             case "rank3": return 3;
             case "rank4": return 4;
             case "rank5": return 5;
-            case "rank6": return 6; // 혹시나 rank6을 쓰는 경우 대비
+            case "rank6": return 6; // 혹시나 rank6도 쓸 수 있게 대비
             case "last":  return 6;
             default:      return 6;
         }
