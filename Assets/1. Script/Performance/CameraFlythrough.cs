@@ -2,33 +2,43 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
-
 public class CameraFlythrough : MonoBehaviour
 {
-     [Header("Path")]
-    public List<Transform> waypoints = new List<Transform>(); // 0..N (Start -> ... -> Entry -> TunnelEnd 등)
+    [Header("Stops & Rotation")]
+    [Tooltip("각 웨이포인트에 도착한 뒤 대기(초). 음수면 무한대기(TriggerContinue() 필요). 인덱스는 '도착지' 웨이포인트 기준.")]
+    public List<float> arrivalPauses = new List<float>();
 
-    [Tooltip("각 구간(waypoints[i] -> waypoints[i+1])의 이동 시간(초). 길이가 모자라면 마지막 값을 재사용합니다.")]
+    [Tooltip("도착 후 다음 구간 진행 방향으로 회전하는 시간(초)")]
+    public float rotateDuration = 0.25f;
+
+    [Tooltip("회전 이징 곡선")]
+    public AnimationCurve rotateEase = AnimationCurve.EaseInOut(0, 0, 1, 1);
+
+    [Tooltip("회전 마지막에 정확히 스냅할지(경계 프레임 잔여각 제거)")]
+    public bool rotateSnapAtEnd = true;
+
+    [Header("Path")]
+    [Tooltip("0..N (Start -> ... -> End)")]
+    public List<Transform> waypoints = new List<Transform>();
+
+    [Tooltip("각 구간(waypoints[i] -> waypoints[i+1]) 이동 시간(초). 길이가 모자라면 마지막 유효값 사용.")]
     public List<float> segmentDurations = new List<float>() { 0.6f, 0.6f, 0.8f };
-    
-    [Header("Stops (per waypoint)")]
-    public List<float> waypointPauses = new List<float>(); // 예: [0, 0.5, -1, 0, 0]  (2번 웨이포인트에서 무한대기)
 
-    [Header("Dive (모니터 빨려들기 제어)")]
-    [Tooltip("이 인덱스 구간부터(waypoints[diveStartIndex] -> waypoints[diveStartIndex+1])가 '다이브' 구간입니다.")]
+    [Header("Dive (특정 구간 가속/이징)")]
+    [Tooltip("이 인덱스 구간부터(waypoints[diveStartIndex] -> waypoints[diveStartIndex+1])가 '다이브' 구간")]
     public int diveStartIndex = 2;
-    
-    [Tooltip("다이브 구간의 시간(초). 비워두면 segmentDurations[diveStartIndex]를 사용합니다.")]
+
+    [Tooltip("다이브 구간 시간(초). <=0이면 segmentDurations[diveStartIndex] 사용")]
     public float overrideDiveDuration = -1f;
 
     [Header("Easing")]
-    [Tooltip("접근/일반 구간 보간곡선")]
+    [Tooltip("일반 구간 위치 이징")]
     public AnimationCurve posEase = AnimationCurve.EaseInOut(0, 0, 1, 1);
 
-    [Tooltip("다이브 구간 보간곡선(가속감을 주려면 EaseIn 형태 권장)")]
+    [Tooltip("다이브 구간 위치 이징(가속감 주려면 EaseIn 권장)")]
     public AnimationCurve diveEase = AnimationCurve.EaseInOut(0, 0, 1, 1);
 
-    [Header("FOV Zoom")]
+    [Header("FOV Zoom (경로 전체 진행도 기반)")]
     public bool useFovZoom = true;
     public float fovStart = 60f;
     public float fovEnd = 42f;
@@ -39,164 +49,248 @@ public class CameraFlythrough : MonoBehaviour
     public float shakeAmp = 0.08f;
     public float shakeTime = 0.12f;
 
-    // 회전 스무딩 파라미터
-    [Header("Turn Smoothing")]
-    [Tooltip("웨이포인트 코너에서 시선 전환이 부드럽게 일어나도록 하는 시간(초)")]
-    public float turnSmoothTime = 0.15f;
+    [Header("Teleport on Dive")]
+    [Tooltip("diveStartIndex에 진입하면 다음(+1) 구간 시작점으로 즉시 텔레포트합니다.")]
+    public bool teleportOnDive = true;
 
-    // 다이브 시작 알림 이벤트 (UIManager가 구독)
+    [Tooltip("몇 구간 앞(기본 +1)으로 텔레포트할지")]
+    public int teleportAdvance = 1;
+    
+    [System.Serializable]
+    public class WaypointToggleSet
+    {
+        public List<GameObject> targets = new List<GameObject>();
+        public List<bool> states = new List<bool>();
+    }
+
+    [Header("Per-Waypoint Toggle (Multiple)")]
+    [Tooltip("각 웨이포인트별로 여러 오브젝트의 활성/비활성 상태를 설정")]
+    public List<WaypointToggleSet> waypointToggles = new List<WaypointToggleSet>();
+
+    [Tooltip("시작 시(waypoint[0]에 ‘이미 도착’한 상태)도 토글을 적용할지")]
+    public bool applyToggleOnStart = true;
+
+    // 이벤트
     public System.Action OnDiveBegin;
+
     // 무한대기 해제용
     bool _continueSignal;
-    float GetPauseForWaypoint(int waypointIndex)
+
+    Camera _cam;
+
+    void ApplyArrivalActions(int waypointIndex)
     {
+        if (waypointIndex < 0 || waypointToggles == null || waypointIndex >= waypointToggles.Count)
+            return;
+
+        var toggleSet = waypointToggles[waypointIndex];
+        if (toggleSet == null || toggleSet.targets == null) return;
+
+        for (int i = 0; i < toggleSet.targets.Count; i++)
+        {
+            var obj = toggleSet.targets[i];
+            if (obj == null) continue;
+
+            bool desiredState = true;
+            if (i < toggleSet.states.Count)
+                desiredState = toggleSet.states[i];
+
+            obj.SetActive(desiredState);
+        }
+    }
+    
+    void Awake()
+    {
+        _cam = GetComponent<Camera>();
+    }
+
+    // 무한대기 해제(외부 호출)
+    public void TriggerContinue() => _continueSignal = true;
+
+    float GetArrivalPause(int waypointIndex)
+    {
+        if (arrivalPauses == null || arrivalPauses.Count == 0) return 0f;
         if (waypointIndex < 0) return 0f;
-        if (waypointPauses == null || waypointPauses.Count == 0) return 0f;
-        if (waypointIndex < waypointPauses.Count) return waypointPauses[waypointIndex];
+        if (waypointIndex < arrivalPauses.Count) return arrivalPauses[waypointIndex];
         return 0f;
     }
 
-// 외부에서 무한대기 해제
-    public void TriggerContinue()
-    {
-        _continueSignal = true;
-    }
-    
-    Vector3 _fwdVel; // SmoothDamp용 내부 속도
-    
-    Camera cam;
-    bool diveSignal; // TriggerDive()로 켜짐
-
-    void Awake()
-    {
-        cam = GetComponent<Camera>();
-    }
-
-    /// <summary>
-    /// 외부에서 호출: 다이브 시작 신호(대기 해제)
-    /// </summary>
-    public void TriggerDive()
-    {
-        diveSignal = true;
-    }
     float GetDurationForSegment(int segIndex)
     {
-        // 다이브 구간만 별도 시간으로 강제
         if (segIndex == diveStartIndex && overrideDiveDuration > 0f)
             return overrideDiveDuration;
 
-        // 기본값 처리
         if (segmentDurations == null || segmentDurations.Count == 0)
             return 0.6f;
 
-        // 정상 범위 값이 있고 양수면 그 값 사용
         if (segIndex >= 0 && segIndex < segmentDurations.Count && segmentDurations[segIndex] > 0f)
             return segmentDurations[segIndex];
 
-        // 길이가 모자라거나 0/음수면 마지막 유효한 양수 값을 재사용
         for (int i = segmentDurations.Count - 1; i >= 0; i--)
             if (segmentDurations[i] > 0f) return segmentDurations[i];
 
-        // 그마저도 없으면 안전 기본값
         return 0.6f;
     }
 
+    float ComputeTotalDuration()
+    {
+        if (waypoints == null) return 0f;
+        int segs = Mathf.Max(0, waypoints.Count - 1);
+        float total = 0f;
+        for (int i = 0; i < segs; i++) total += GetDurationForSegment(i);
+        return Mathf.Max(0.0001f, total);
+    }
+
     /// <summary>
-    /// 전체 시퀀스 플레이. 시작 위치 세팅 → 구간별 이동 → (선택) 대기 → 다이브 → 종료 셰이크
+    /// 전체 시퀀스 실행: 시작 세팅 → (이동 → 대기 → 회전)* → 종료 셰이크
     /// </summary>
     public IEnumerator Play()
     {
-  if (waypoints == null || waypoints.Count < 2) yield break;
+        if (waypoints == null || waypoints.Count < 2) yield break;
 
-    // 시작 세팅
-    transform.position = waypoints[0].position;
-    transform.rotation = Quaternion.LookRotation(
-        (waypoints[1].position - waypoints[0].position).normalized, Vector3.up);
-    if (useFovZoom && cam) cam.fieldOfView = fovStart;
+        // 시작 상태: 위치 고정, 시선은 0->1
+        transform.position = waypoints[0].position;
+        Quaternion startRot = Quaternion.LookRotation(
+            (waypoints[1].position - waypoints[0].position).normalized, Vector3.up);
+        transform.rotation = startRot;
 
-    int segs = waypoints.Count - 1;
+        if (useFovZoom && _cam) _cam.fieldOfView = fovStart;
+        if (applyToggleOnStart) ApplyArrivalActions(0);
 
-    for (int i = 0; i < segs; i++)
-    {
-        // (선택) 웨이포인트 대기 기능 넣으셨다면 여기서 처리
-        float pause = GetPauseForWaypoint(i); // 없으면 0 반환하도록 구현 or 0으로 가정
-        if (pause < 0f)
+        int segs = waypoints.Count - 1;
+        float totalDur = ComputeTotalDuration();
+        float elapsedGlobal = 0f; // ★ 경로 전체 진행도(끊김/점프 방지 핵심)
+
+        for (int i = 0; i < segs; i++)
         {
-            _continueSignal = false;
-            while (!_continueSignal) yield return null; // TriggerContinue() 기다림
-        }
-        else if (pause > 0f)
-        {
-            yield return new WaitForSeconds(pause);
-        }
-
-        // 다이브 구간 시작 이벤트 (UI에서 ejectDelay 타이밍 잡을 때 사용)
-        if (i == diveStartIndex)
-        {
-            OnDiveBegin?.Invoke();
-        }
-
-        // 이번 구간의 a->b 설정
-        Vector3 a = waypoints[i].position;
-        Vector3 b = waypoints[i + 1].position;
-
-        // ✅ 제로 길이 구간은 스킵 (회전 타깃 0벡터 방지)
-        Vector3 seg = b - a;
-        if (seg.sqrMagnitude < 1e-8f)
-            continue;
-
-        float dur = GetDurationForSegment(i);
-
-
-
-        float t = 0f;
-        while (t < dur)
-        {
-            t += Time.deltaTime;
-            float n = Mathf.Clamp01(t / dur);
-            float e = (i == diveStartIndex) ? diveEase.Evaluate(n) : posEase.Evaluate(n);
-
-            // 위치 보간
-            transform.position = Vector3.Lerp(a, b, e);
-
-            // ✅ 회전 스무딩 (끊김 제거 핵심)
-            // 1) 현재 구간 진행방향
-            Vector3 segDir = (b - a).normalized;
-
-            // 2) 코너에서 다음 구간 방향을 살짝 미리 섞어 더 자연스럽게 (옵션)
-            if (i < segs - 1)
+            if (teleportOnDive && i == diveStartIndex)
             {
-                Vector3 c = waypoints[i + 2].position;
-                Vector3 next = (c - b);
-                if (next.sqrMagnitude > 1e-8f)
+                // 텔레포트 목표 웨이포인트(현재 세그먼트의 도착지에서 +teleportAdvance-1 만큼 더)
+                // 기본은 +1 세그먼트 시작점(= waypoints[i+1])으로 점프 후, 그 구간(i+1 -> i+2)부터 다시 dive
+                int targetWpIndex = Mathf.Min(i + teleportAdvance, waypoints.Count - 1);
+
+                // FOV 진행도 끊김 방지: 스킵한 세그먼트 시간만큼 글로벌 시간 누적
+                float skippedDur = GetDurationForSegment(i);
+                elapsedGlobal += skippedDur;
+
+                // 실제 위치 텔레포트
+                transform.position = waypoints[targetWpIndex].position;
+
+                // 다음 진행 방향으로 시선 정렬(있으면)
+                if (targetWpIndex < waypoints.Count - 1)
                 {
-                    float cornerBlend = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.65f, 0.98f, n));
-                    segDir = Vector3.Slerp(segDir, next.normalized, cornerBlend * 0.35f);
+                    Vector3 lookDir = waypoints[targetWpIndex + 1].position - waypoints[targetWpIndex].position;
+                    if (lookDir.sqrMagnitude > 1e-8f)
+                        transform.rotation = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
                 }
-            }
-            // 3) 목표 회전
-            Quaternion targetRot = Quaternion.LookRotation(segDir, Vector3.up);
-            
-            float rotAlpha = 1f - Mathf.Exp(-Time.deltaTime / Mathf.Max(0.0001f, turnSmoothTime));
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, rotAlpha);
+                
+                ApplyArrivalActions(targetWpIndex);
 
-            if (n > 0.995f)
-            {
-                transform.rotation = targetRot;
+                // 도착 대기 적용(선택적으로 유지)
+                float pause = GetArrivalPause(targetWpIndex);
+                if (pause < 0f)
+                {
+                    _continueSignal = false;
+                    while (!_continueSignal) yield return null;
+                }
+                else if (pause > 0f)
+                {
+                    yield return new WaitForSeconds(pause);
+                }
+
+                // 이제 "다음(+1) 세그먼트"를 다이브 구간으로 재지정
+                // (현재 i는 곧 i++로 넘어가므로, 다음 루프에서 i+1 == diveStartIndex 가 되어 다이브가 다시 시작됨)
+                diveStartIndex = targetWpIndex;
+
+                // 이 세그먼트(i)의 이동/회전 처리는 모두 건너뛰고 다음으로 진행
+                continue;
             }
             
-            // FOV 보간
-            if (useFovZoom && cam)
+            // (1) 이동: i -> i+1
+            if (i == diveStartIndex) OnDiveBegin?.Invoke();
+
+            Vector3 a = waypoints[i].position;
+            Vector3 b = waypoints[i + 1].position;
+            Vector3 seg = b - a;
+
+            if (seg.sqrMagnitude < 1e-8f)
             {
-                float f = (i == diveStartIndex) ? e : fovEase.Evaluate(n);
-                cam.fieldOfView = Mathf.Lerp(fovStart, fovEnd, f);
+                transform.position = b;
+            }
+            else
+            {
+                float dur = GetDurationForSegment(i);
+                float t = 0f;
+
+                // 이동 동안엔 회전 고정
+                Quaternion fixedRot = transform.rotation;
+
+                while (t < dur)
+                {
+                    float dt = Time.deltaTime;
+                    t += dt;
+                    elapsedGlobal += dt;
+
+                    float nLocal = Mathf.Clamp01(t / dur);
+                    float nEase = (i == diveStartIndex) ? diveEase.Evaluate(nLocal) : posEase.Evaluate(nLocal);
+
+                    // 위치 보간
+                    transform.position = Vector3.Lerp(a, b, nEase);
+
+                    // 이동 중 회전 고정
+                    transform.rotation = fixedRot;
+
+                    // FOV: ★ 경로 전체 진행도 기반 보간(세그먼트 경계 점프 제거)
+                    if (useFovZoom && _cam)
+                    {
+                        float nGlobal = Mathf.Clamp01(elapsedGlobal / totalDur);
+                        _cam.fieldOfView = Mathf.Lerp(fovStart, fovEnd, fovEase.Evaluate(nGlobal));
+                    }
+
+                    yield return null;
+                }
+
+                // 안전 스냅
+                transform.position = b;
+            }
+            ApplyArrivalActions(i + 1);
+
+            // (2) 도착 후 대기
+            float afterPause = GetArrivalPause(i + 1); // 도착지 기준
+            if (afterPause < 0f)
+            {
+                _continueSignal = false;
+                while (!_continueSignal) yield return null;
+            }
+            else if (afterPause > 0f)
+            {
+                yield return new WaitForSeconds(afterPause);
             }
 
-            yield return null;
+            // (3) 다음 구간 방향으로 회전 (마지막 세그먼트는 불필요)
+            if (i >= segs - 1) break;
+
+            Vector3 nextDir = (waypoints[i + 2].position - waypoints[i + 1].position);
+            if (nextDir.sqrMagnitude > 1e-8f)
+            {
+                Quaternion fromRot = transform.rotation;
+                Quaternion toRot = Quaternion.LookRotation(nextDir.normalized, Vector3.up);
+
+                float rt = 0f;
+                float rDur = Mathf.Max(0.0001f, rotateDuration);
+                while (rt < rDur)
+                {
+                    rt += Time.deltaTime;
+                    float r01 = Mathf.Clamp01(rt / rDur);
+                    float rE = rotateEase.Evaluate(r01);
+                    transform.rotation = Quaternion.Slerp(fromRot, toRot, rE);
+                    yield return null;
+                }
+                if (rotateSnapAtEnd) transform.rotation = toRot;
+            }
         }
-    }
 
-    if (smallShakeOnEnd) yield return StartCoroutine(EndShake());
+        if (smallShakeOnEnd) yield return StartCoroutine(EndShake());
     }
 
     IEnumerator EndShake()

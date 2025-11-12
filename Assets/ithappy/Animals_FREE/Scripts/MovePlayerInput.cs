@@ -35,6 +35,8 @@ namespace ithappy.Animals_FREE
         private Vector2 m_MouseDelta;
         private float m_Scroll;
 
+        
+        
         private void Awake()
         {
             m_Mover = GetComponent<CreatureMover>();
