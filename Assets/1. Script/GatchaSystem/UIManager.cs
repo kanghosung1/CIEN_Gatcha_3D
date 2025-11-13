@@ -276,7 +276,7 @@ public class UIManager : MonoBehaviour {
                 : prize.id == "rank3" ? new Color(0.9f, 0.95f, 1f)
                 : prize.id == "rank4" ? new Color(0.9f, 1f, 0.9f)
                 : prize.id == "rank5" ? new Color(1f, 0.95f, 0.85f)
-                : /* last = 6등 */     new Color(0.85f, 0.85f, 0.85f);
+                : new Color(0.85f, 0.85f, 0.85f);
 
             resultFX.Show($"결과: {prize.name}", color, onClosed: () => {
                 CleanupAfterSequence();
