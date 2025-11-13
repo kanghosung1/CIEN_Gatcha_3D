@@ -202,6 +202,7 @@ public class UIManager : MonoBehaviour {
 
     // === 스킵 ①: 처음 화면으로 복귀 ===
     void OnClickSkipToHome() {
+        
         if (_flyCo != null) { StopCoroutine(_flyCo); _flyCo = null; }
         if (_sequenceCo != null) { StopCoroutine(_sequenceCo); _sequenceCo = null; }
 

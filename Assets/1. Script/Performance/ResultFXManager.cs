@@ -21,6 +21,15 @@ public class ResultFXManager : MonoBehaviour
         if (exitButton != null) {
             exitButton.gameObject.SetActive(false);
             exitButton.onClick.AddListener(() => {
+
+                // ★★★ 결과 공 삭제 추가 ★★★
+                var ui = FindFirstObjectByType<UIManager>();
+                if (ui != null && ui.lotto != null && ui.lotto.lastSpawnedBall != null)
+                {
+                    Destroy(ui.lotto.lastSpawnedBall.gameObject);
+                    ui.lotto.lastSpawnedBall = null;
+                }
+
                 exitButton.gameObject.SetActive(false);
                 gameObject.SetActive(false);  // 결과 패널 닫기
                 onClosed?.Invoke();           // 복귀 콜백 실행

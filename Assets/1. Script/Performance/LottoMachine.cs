@@ -25,6 +25,8 @@ public class LottoMachine : MonoBehaviour
     [Header("Run")]
     public float runTime = 1.5f;           // 돔 흔들리는 총 시간 (토출 전 연출)
     public bool autoTestKey = true;        // 스페이스로 테스트 실행
+    
+    public Rigidbody lastSpawnedBall;   // 추가
 
     float timer;
     void Start()
@@ -89,6 +91,7 @@ public class LottoMachine : MonoBehaviour
         if (!resultBallPrefab || !ejectSpawn) return;
 
         var rb = Instantiate(resultBallPrefab, ejectSpawn.position, Quaternion.identity);
+        lastSpawnedBall = rb;  // ★ 최근 생성된 공 저장
 
         // 랜덤 색(선택)
         if (colorPalette != null && colorPalette.Length > 0)
