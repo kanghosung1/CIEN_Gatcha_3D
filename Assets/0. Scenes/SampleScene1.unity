@@ -24603,7 +24603,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1652143759095011302, guid: e2c1ac940434a5242b54d72b66654687, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 2.298
+      value: 2.305
       objectReference: {fileID: 0}
     - target: {fileID: 1652143759095011302, guid: e2c1ac940434a5242b54d72b66654687, type: 3}
       propertyPath: m_LocalRotation.w
@@ -24689,8 +24689,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 449650333988fe04abbb24717a4de0ba, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  lifeTime: 5.5
-  fadeDuration: 1
+  startShrinkTime: 4
+  shrinkDuration: 1.5
 --- !u!1 &1777219692
 GameObject:
   m_ObjectHideFlags: 0
@@ -28449,8 +28449,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 449650333988fe04abbb24717a4de0ba, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  lifeTime: 9
-  fadeDuration: 3
+  startShrinkTime: 9
+  shrinkDuration: 0.7
 --- !u!1 &2088644446
 GameObject:
   m_ObjectHideFlags: 0
