@@ -346,6 +346,12 @@ public class UIManager : MonoBehaviour {
         _flyCo = null;
         _spawnedBall = false;
         _revealed = false;
+        // 카메라 초기 위치로 리셋
+        if (fly != null)
+        {
+            fly.transform.position = new Vector3(0f, 0f, -10f);
+            fly.transform.rotation = Quaternion.identity; // 필요하면 그대로 유지
+        }
     }
 
     void SetSkipToReveal(bool active, bool interactable) {
