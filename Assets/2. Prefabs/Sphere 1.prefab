@@ -149,8 +149,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: faa5b9228731a8948bd384d48c717b48, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  colors:
-  - {r: 1, g: 0, b: 0, a: 0}
-  - {r: 0, g: 0.027592659, b: 1, a: 0}
-  - {r: 0.96768737, g: 1, b: 0, a: 0}
-  - {r: 0.5107093, g: 0, b: 1, a: 0}
+  materials:
+  - {fileID: 2100000, guid: 5c35dbf5215b0884d89b883342446918, type: 2}
+  - {fileID: 2100000, guid: 7f008be8f5e5d3b4a9356f2604f82ad9, type: 2}
+  - {fileID: 2100000, guid: c61cf37e56013e245a8e205a590610e9, type: 2}
+  - {fileID: 2100000, guid: 902c0e65c2b32824289001eaf21deede, type: 2}
+  - {fileID: 2100000, guid: adc8d690ccac3cd40b6155e7b6a0e36d, type: 2}
+  - {fileID: 2100000, guid: 681b5c6f0aa94fa4f9e17b104391440d, type: 2}
