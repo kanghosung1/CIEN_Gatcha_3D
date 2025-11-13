@@ -7,7 +7,7 @@ using UnityEngine.UI;
 public class UIManager : MonoBehaviour {
     [Header("Refs")]
     public GachaManager gacha;                // 씬의 GachaManager Drag&Drop
-    public Button drawButton;                 // “가챠 돌리기”
+    public Button drawButton;                 // “가챠 돌리기” (메인 UI)
     public TextMeshProUGUI resultText;        // 결과 표시
     public Transform prizeListParent;         // ScrollView Content 오브젝트
     public GameObject prizeRowPrefab;         // PrizeRowPrefab
@@ -30,10 +30,12 @@ public class UIManager : MonoBehaviour {
     [SerializeField] private float delayAfterSpawn = 1.5f;
 
     [Header("Skip")]
-    [Tooltip("플라이스루 도중 즉시 초기 UI로 돌아가는 스킵 버튼")]
-    public Button skipButton;                 // 초기 화면으로
-    [Tooltip("플라이스루/대기 생략 후 즉시 결과 표시로 이동하는 스킵 버튼")]
-    public Button skipToRevealButton;         // 결과 직행
+    [Tooltip("플라이스루/대기 생략 후 '뽑기 버튼 활성화 상태'까지 스킵하는 버튼")]
+    public Button skipToRevealButton;         // 이제 이 버튼만 사용
+
+    [Header("In-stage Draw")]
+    [Tooltip("카메라 연출이 끝난 후 3D 스테이지 위에 나타나는 '뽑기' 버튼")]
+    public Button stageDrawButton;            // 새로 추가되는 버튼
 
     [Header("Optional")]
     public LottoMachine lotto;                // 로또 기계 참조(있다면 SpawnResultBall 사용)
@@ -45,7 +47,7 @@ public class UIManager : MonoBehaviour {
     private string lastPrizeNameOrLabel;
     private Prize _currentPrize;
 
-    // 코루틴 핸들(스킵용)
+    // 코루틴 핸들
     private Coroutine _sequenceCo;
     private Coroutine _flyCo;
 
@@ -56,11 +58,15 @@ public class UIManager : MonoBehaviour {
     void Start() {
         if (drawButton != null) drawButton.onClick.AddListener(OnClickDraw);
         if (exportCsvButton != null) exportCsvButton.onClick.AddListener(OnClickExportCsv);
-        if (skipButton != null) {
-            skipButton.onClick.AddListener(OnClickSkipToHome);
-            skipButton.gameObject.SetActive(false);
-            skipButton.interactable = false;
+
+        // 새 2차 뽑기 버튼
+        if (stageDrawButton != null) {
+            stageDrawButton.onClick.AddListener(OnClickStageDraw);
+            stageDrawButton.gameObject.SetActive(false);
+            stageDrawButton.interactable = false;
         }
+
+        // SkipToReveal 버튼: 플라이스루 → "뽑기 버튼 활성화 상태"까지 스킵
         if (skipToRevealButton != null) {
             skipToRevealButton.onClick.AddListener(OnClickSkipToReveal);
             skipToRevealButton.gameObject.SetActive(false);
@@ -140,6 +146,7 @@ public class UIManager : MonoBehaviour {
         }
     }
 
+    // 메인 UI에서 "가챠 돌리기" 버튼
     void OnClickDraw() {
         var prize = gacha.DrawOnce();
         if (prize == null) {
@@ -157,7 +164,7 @@ public class UIManager : MonoBehaviour {
             StopCoroutine(_sequenceCo);
             _sequenceCo = null;
         }
-        _sequenceCo = StartCoroutine(PlaySequenceThenShow(prize));
+        _sequenceCo = StartCoroutine(PlaySequenceUntilStageDraw(prize));
     }
 
     void OnClickExportCsv() {
@@ -165,7 +172,10 @@ public class UIManager : MonoBehaviour {
         if (resultText) resultText.text = $"CSV 저장: {path}";
     }
 
-    IEnumerator PlaySequenceThenShow(Prize prize) {
+    /// <summary>
+    /// 카메라 플라이스루까지 진행하고, 끝나면 2차 뽑기 버튼(stageDrawButton)을 활성화하는 시퀀스
+    /// </summary>
+    IEnumerator PlaySequenceUntilStageDraw(Prize prize) {
         _currentPrize = prize;
         _spawnedBall = false;
         _revealed = false;
@@ -176,8 +186,14 @@ public class UIManager : MonoBehaviour {
 
         if (stageRoot) stageRoot.SetActive(true);
 
-        // 스킵 버튼 활성화
-        SetSkipButtons(active: true, interactable: true);
+        // 2차 뽑기 버튼은 카메라 연출이 끝날 때까지 숨김
+        if (stageDrawButton != null) {
+            stageDrawButton.gameObject.SetActive(false);
+            stageDrawButton.interactable = false;
+        }
+
+        // 스킵 버튼 활성화 (플라이스루 → "뽑기 버튼 활성화 상태"까지 스킵)
+        SetSkipToReveal(active: true, interactable: true);
 
         // 1) 카메라 플라이스루
         if (fly != null) {
@@ -186,39 +202,57 @@ public class UIManager : MonoBehaviour {
             _flyCo = null;
         }
 
-        // 2) 결과구슬 Spawn
+        // 2) 플라이스루 끝 → 2차 뽑기 버튼 활성화
+        if (stageDrawButton != null) {
+            stageDrawButton.gameObject.SetActive(true);
+            stageDrawButton.interactable = true;
+        }
+
+        // 이 시점에서는 스킵 버튼 필요 없음
+        SetSkipToReveal(active: false, interactable: false);
+
+        _sequenceCo = null;
+    }
+
+    /// <summary>
+    /// 카메라 연출이 끝난 뒤, 2차 뽑기 버튼을 눌렀을 때: 공 Spawn + delayAfterSpawn 후 결과 표시
+    /// </summary>
+    void OnClickStageDraw() {
+        if (_currentPrize == null) return;
+
+        if (stageDrawButton != null) {
+            stageDrawButton.interactable = false;
+            stageDrawButton.gameObject.SetActive(false);
+        }
+
+        // 혹시 이전 서브 시퀀스가 있다면 정리
+        if (_sequenceCo != null) {
+            StopCoroutine(_sequenceCo);
+            _sequenceCo = null;
+        }
+
+        _sequenceCo = StartCoroutine(SpawnBallThenShowResult());
+    }
+
+    IEnumerator SpawnBallThenShowResult() {
+        _spawnedBall = false;
+        _revealed = false;
+
+        // 1) 결과 구슬 Spawn
         EnsureSpawnBall();
 
-        // 3) 대기
+        // 2) 대기
         if (delayAfterSpawn > 0f) {
             yield return new WaitForSeconds(delayAfterSpawn);
         }
 
-        // 4) 결과 표시
+        // 3) 결과 표시
         RevealCurrentPrize();
 
         _sequenceCo = null;
     }
 
-    // === 스킵 ①: 처음 화면으로 복귀 ===
-    void OnClickSkipToHome() {
-        
-        if (_flyCo != null) { StopCoroutine(_flyCo); _flyCo = null; }
-        if (_sequenceCo != null) { StopCoroutine(_sequenceCo); _sequenceCo = null; }
-
-        if (resultIngame) resultIngame.gameObject.SetActive(false);
-        if (stageRoot) stageRoot.SetActive(false);
-
-        SetSkipButtons(active: false, interactable: false);
-
-        RefreshAll();
-        if (TotalUIPanel) TotalUIPanel.SetActive(true);
-        if (drawButton) drawButton.interactable = true;
-
-        if (resultText) resultText.text = $"이전 결과: {lastPrizeNameOrLabel}";
-    }
-
-    // === 스킵 ②: 결과 직전까지(카메라도 마지막으로 스냅) → 즉시 결과 표시 ===
+    // === 스킵: 플라이스루/대기 생략 → "뽑기 버튼 활성화된 상태"까지 즉시 이동 ===
     void OnClickSkipToReveal() {
         // 진행 중 코루틴 중단
         if (_flyCo != null) { StopCoroutine(_flyCo); _flyCo = null; }
@@ -227,16 +261,23 @@ public class UIManager : MonoBehaviour {
         // 스테이지 유지
         if (stageRoot) stageRoot.SetActive(true);
 
-        // ★ 카메라를 마지막 웨이포인트 상태로 즉시 스냅
+        // 카메라를 마지막 웨이포인트 상태로 즉시 스냅
         if (fly != null) {
             fly.JumpToEnd(applyArrivalToggles: true);
         }
 
-        // 결과구슬이 아직이면 바로 Spawn
-        EnsureSpawnBall();
+        // 공은 아직 Spawn하지 않음
+        _spawnedBall = false;
+        _revealed = false;
 
-        // 대기 생략 → 결과 바로 표시
-        RevealCurrentPrize();
+        // 2차 뽑기 버튼 바로 활성화
+        if (stageDrawButton != null) {
+            stageDrawButton.gameObject.SetActive(true);
+            stageDrawButton.interactable = true;
+        }
+
+        // 이 시점 이후로는 스킵 버튼 숨김
+        SetSkipToReveal(active: false, interactable: false);
     }
 
     void EnsureSpawnBall() {
@@ -268,9 +309,6 @@ public class UIManager : MonoBehaviour {
             midText.text = $"결과: {lastPrizeNameOrLabel}";
         }
 
-        // 결과 순간엔 스킵 비활성
-        SetSkipButtons(active: false, interactable: false);
-
         if (resultFX != null) {
             var color = prize.id == "rank1" ? new Color(1f, 0.9f, 0.2f)
                 : prize.id == "rank2" ? new Color(0.8f, 0.9f, 1f)
@@ -294,7 +332,14 @@ public class UIManager : MonoBehaviour {
         if (TotalUIPanel) TotalUIPanel.SetActive(true);
         if (drawButton) drawButton.interactable = true;
 
-        SetSkipButtons(active: false, interactable: false);
+        // 스킵 버튼은 기본적으로 꺼두기
+        SetSkipToReveal(active: false, interactable: false);
+
+        // 2차 뽑기 버튼도 끔
+        if (stageDrawButton != null) {
+            stageDrawButton.gameObject.SetActive(false);
+            stageDrawButton.interactable = false;
+        }
 
         _currentPrize = null;
         _sequenceCo = null;
@@ -303,11 +348,7 @@ public class UIManager : MonoBehaviour {
         _revealed = false;
     }
 
-    void SetSkipButtons(bool active, bool interactable) {
-        if (skipButton != null) {
-            skipButton.gameObject.SetActive(active);
-            skipButton.interactable = interactable;
-        }
+    void SetSkipToReveal(bool active, bool interactable) {
         if (skipToRevealButton != null) {
             skipToRevealButton.gameObject.SetActive(active);
             skipToRevealButton.interactable = interactable;

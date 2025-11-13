@@ -54,7 +54,7 @@ public class LottoMachine : MonoBehaviour
         }
 
         // 테스트/운영: 스페이스 → 결과 공 토출
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (Input.GetKeyDown(KeyCode.L))
             SpawnResultBall();
     }
 
