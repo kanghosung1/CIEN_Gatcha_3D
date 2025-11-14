@@ -28,8 +28,8 @@ public class GachaManager : MonoBehaviour {
             new Prize{ id="rank2", name="2등", remaining=15,  weight=1 },
             new Prize{ id="rank3", name="3등", remaining=10, weight=1 },
             new Prize{ id="rank4", name="4등", remaining=10, weight=1 },
-            new Prize{ id="rank5", name="5등", remaining=30, weight=1 },
-            new Prize{ id="last",  name="6등", remaining=30, weight=1 }
+            new Prize{ id="rank5", name="5등", remaining=28, weight=1 },
+            new Prize{ id="last",  name="6등", remaining=0, weight=1 }
         };
 
         // ✅ winCounts 딕셔너리 미리 전부 생성
