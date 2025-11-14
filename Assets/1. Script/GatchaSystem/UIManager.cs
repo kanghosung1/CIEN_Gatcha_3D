@@ -42,6 +42,8 @@ public class UIManager : MonoBehaviour {
     [Tooltip("resultIngame에 붙은 컨트롤러(등수별 Parent 활성화 담당)")]
     public ResultIngameEffectController ingameEffectCtrl;
 
+    public GameObject TurnOffAtSkip;
+    
     // 내부 상태
     readonly List<PrizeRowUI> rows = new List<PrizeRowUI>();
     private string lastPrizeNameOrLabel;
@@ -258,12 +260,15 @@ public class UIManager : MonoBehaviour {
         if (_flyCo != null) { StopCoroutine(_flyCo); _flyCo = null; }
         if (_sequenceCo != null) { StopCoroutine(_sequenceCo); _sequenceCo = null; }
 
+        TurnOffAtSkip.gameObject.SetActive(false);
+        
         // 스테이지 유지
         if (stageRoot) stageRoot.SetActive(true);
 
-        // 카메라를 마지막 웨이포인트 상태로 즉시 스냅
+// 카메라를 마지막 웨이포인트 상태로 즉시 스냅
         if (fly != null) {
-            fly.JumpToEnd(applyArrivalToggles: true);
+            // 스킵할 때는 waypoint 토글 상태는 건들지 않음
+            fly.JumpToEnd(applyArrivalToggles: false);
         }
 
         // 공은 아직 Spawn하지 않음

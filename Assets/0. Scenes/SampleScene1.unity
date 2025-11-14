@@ -6308,7 +6308,8 @@ MonoBehaviour:
     - {fileID: 6397291154489462227}
     - {fileID: 1775934702}
     - {fileID: 2087575771}
-    states: 000000000001
+    - {fileID: 998878369}
+    states: 00000000000101
   - targets: []
     states: 00
   - targets:
@@ -6331,10 +6332,8 @@ MonoBehaviour:
     states: 01
   - targets: []
     states: 
-  - targets:
-    - {fileID: 998878369}
-    - {fileID: 1067940002}
-    states: 0101
+  - targets: []
+    states: 
   applyToggleOnStart: 1
 --- !u!1 &339349203
 GameObject:
@@ -11822,7 +11821,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 1741693452841693106, guid: c4ed38c72957f2241ad144a1614956d9, type: 3}
       propertyPath: m_Intensity
-      value: 0
+      value: 9.913281
       objectReference: {fileID: 0}
     - target: {fileID: 8764043878647920493, guid: c4ed38c72957f2241ad144a1614956d9, type: 3}
       propertyPath: m_Name
@@ -28713,6 +28712,7 @@ MonoBehaviour:
   stageDrawButton: {fileID: 1872041846}
   lotto: {fileID: 539931484448673895}
   ingameEffectCtrl: {fileID: 382797474}
+  TurnOffAtSkip: {fileID: 2087575771}
 --- !u!4 &1777219694
 Transform:
   m_ObjectHideFlags: 0
